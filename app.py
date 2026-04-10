@@ -37,7 +37,7 @@ db = firestore.client()
 def load_students():
     global student_db, student_names
 
-    print("Loading students (NO DOWNLOAD)...")
+    print("Loading students from Firestore...")
 
     students = db.collection("students").stream()
 
@@ -53,7 +53,6 @@ def load_students():
 
         for face in faces:
             face_data = face.to_dict()
-
             embedding = face_data.get("embedding")
 
             if embedding:
@@ -79,8 +78,11 @@ def home():
 @app.route("/process_attendance", methods=["POST"])
 def process():
     try:
-        # ✅ LOAD ONLY ONCE
-        if len(student_db) == 0:
+        global student_db
+
+        # ✅ LOAD ONLY ONCE (SAFE)
+        if not student_db:
+            print("First time loading students...")
             load_students()
 
         data = request.get_json()
@@ -100,32 +102,37 @@ def process():
         total_faces_all = 0
         unknown_total = 0
 
-        # =========================
-        # 🔍 PROCESS IMAGES
-        # =========================
+        import requests
+        import cv2
+
         for url in image_urls:
-            # 🔥 HERE still need image (input image only)
-            import requests
-            import cv2
+            try:
+                response = requests.get(url, timeout=10)
 
-            response = requests.get(url, timeout=5)
-            img_array = np.asarray(bytearray(response.content), dtype=np.uint8)
-            img = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
+                if response.status_code != 200:
+                    continue
 
-            if img is None:
+                img_array = np.asarray(bytearray(response.content), dtype=np.uint8)
+                img = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
+
+                if img is None:
+                    continue
+
+                _, detected_ids, unknown_count, total_faces = process_attendance(
+                    img,
+                    student_db,
+                    MATCH_THRESHOLD
+                )
+
+                total_faces_all += total_faces
+                unknown_total += unknown_count
+
+                for sid in detected_ids:
+                    present_ids.add(sid)
+
+            except Exception as e:
+                print("Image error:", e)
                 continue
-
-            _, detected_ids, unknown_count, total_faces = process_attendance(
-                img,
-                student_db,
-                MATCH_THRESHOLD
-            )
-
-            total_faces_all += total_faces
-            unknown_total += unknown_count
-
-            for sid in detected_ids:
-                present_ids.add(sid)
 
         present_ids = list(present_ids)
 
