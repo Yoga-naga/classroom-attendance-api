@@ -15,12 +15,13 @@ app = Flask(__name__)
 # =========================
 # 🔥 FIREBASE INIT
 # =========================
-cred = credentials.Certificate("firebase_key.json")
+import json
+
+firebase_config = json.loads(os.environ.get("FIREBASE_KEY"))
+
+cred = credentials.Certificate(firebase_config)
 firebase_admin.initialize_app(cred)
 db = firestore.client()
-
-student_db = {}
-student_names = {}
 
 # =========================
 # 📥 DOWNLOAD IMAGE
