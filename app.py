@@ -1,25 +1,22 @@
 from flask import Flask, request, jsonify
-import cv2
 import os
 import numpy as np
-import requests
 import firebase_admin
 from firebase_admin import credentials, firestore
 
-from utils import get_embedding
 from model import process_attendance
 from config import MATCH_THRESHOLD
 
 app = Flask(__name__)
 
 # =========================
-# 🔥 GLOBAL VARIABLES (FIX)
+# 🔥 GLOBAL VARIABLES
 # =========================
 student_db = {}
 student_names = {}
 
 # =========================
-# 🔥 FIREBASE INIT (SAFE)
+# 🔥 FIREBASE INIT
 # =========================
 import json
 
@@ -35,36 +32,12 @@ firebase_admin.initialize_app(cred)
 db = firestore.client()
 
 # =========================
-# 📥 DOWNLOAD IMAGE
-# =========================
-def download_image(url):
-    try:
-        print("Downloading:", url)
-
-        response = requests.get(url)
-        if response.status_code != 200:
-            return None
-
-        img_array = np.asarray(bytearray(response.content), dtype=np.uint8)
-
-        if img_array.size == 0:
-            return None
-
-        img = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
-
-        return img
-    except Exception as e:
-        print("Download error:", e)
-        return None
-
-
-# =========================
-# 👨‍🎓 LOAD STUDENTS (SAFE)
+# 👨‍🎓 LOAD STUDENTS (FAST)
 # =========================
 def load_students():
     global student_db, student_names
 
-    print("Loading students...")
+    print("Loading students (NO DOWNLOAD)...")
 
     students = db.collection("students").stream()
 
@@ -79,20 +52,12 @@ def load_students():
         embeddings = []
 
         for face in faces:
-            url = face.to_dict().get("url")
+            face_data = face.to_dict()
 
-            if not url:
-                continue
+            embedding = face_data.get("embedding")
 
-            img = download_image(url)
-
-            if img is None:
-                continue
-
-            emb = get_embedding(img)
-
-            if emb is not None:
-                embeddings.append(emb)
+            if embedding:
+                embeddings.append(np.array(embedding))
 
         if len(embeddings) > 0:
             student_db[sid] = embeddings
@@ -100,16 +65,12 @@ def load_students():
     print("Students loaded:", len(student_db))
 
 
-# ❌ REMOVED AUTO LOAD (IMPORTANT FIX)
-# load_students()
-
-
 # =========================
 # 🏠 HOME
 # =========================
 @app.route("/")
 def home():
-    return "AI Attendance Backend Running"
+    return "AI Attendance Backend Running 🚀"
 
 
 # =========================
@@ -118,7 +79,7 @@ def home():
 @app.route("/process_attendance", methods=["POST"])
 def process():
     try:
-        # ✅ LAZY LOAD (NO CRASH)
+        # ✅ LOAD ONLY ONCE
         if len(student_db) == 0:
             load_students()
 
@@ -133,7 +94,7 @@ def process():
         if not image_urls or not date:
             return jsonify({"error": "Missing data"}), 400
 
-        print("Received URLs:", image_urls)
+        print("Processing attendance...")
 
         present_ids = set()
         total_faces_all = 0
@@ -143,10 +104,15 @@ def process():
         # 🔍 PROCESS IMAGES
         # =========================
         for url in image_urls:
-            img = download_image(url)
+            # 🔥 HERE still need image (input image only)
+            import requests
+            import cv2
+
+            response = requests.get(url, timeout=5)
+            img_array = np.asarray(bytearray(response.content), dtype=np.uint8)
+            img = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
 
             if img is None:
-                print("Skipping image")
                 continue
 
             _, detected_ids, unknown_count, total_faces = process_attendance(
@@ -162,8 +128,6 @@ def process():
                 present_ids.add(sid)
 
         present_ids = list(present_ids)
-
-        print("Present:", present_ids)
 
         total_students = len(student_db)
         present_count = len(present_ids)
@@ -189,8 +153,6 @@ def process():
                     "status": status
                 })
 
-        print("Attendance saved successfully")
-
         return jsonify({
             "present_students": present_ids,
             "present_count": present_count,
@@ -207,7 +169,7 @@ def process():
 
 
 # =========================
-# 🚀 RUN SERVER
+# 🚀 RUN
 # =========================
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
