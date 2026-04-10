@@ -13,11 +13,22 @@ from config import MATCH_THRESHOLD
 app = Flask(__name__)
 
 # =========================
-# 🔥 FIREBASE INIT
+# 🔥 GLOBAL VARIABLES (FIX)
+# =========================
+student_db = {}
+student_names = {}
+
+# =========================
+# 🔥 FIREBASE INIT (SAFE)
 # =========================
 import json
 
-firebase_config = json.loads(os.environ.get("FIREBASE_KEY"))
+firebase_key = os.environ.get("FIREBASE_KEY")
+
+if not firebase_key:
+    raise Exception("FIREBASE_KEY not set")
+
+firebase_config = json.loads(firebase_key)
 
 cred = credentials.Certificate(firebase_config)
 firebase_admin.initialize_app(cred)
@@ -48,9 +59,11 @@ def download_image(url):
 
 
 # =========================
-# 👨‍🎓 LOAD STUDENTS
+# 👨‍🎓 LOAD STUDENTS (SAFE)
 # =========================
 def load_students():
+    global student_db, student_names
+
     print("Loading students...")
 
     students = db.collection("students").stream()
@@ -66,7 +79,11 @@ def load_students():
         embeddings = []
 
         for face in faces:
-            url = face.to_dict()["url"]
+            url = face.to_dict().get("url")
+
+            if not url:
+                continue
+
             img = download_image(url)
 
             if img is None:
@@ -77,15 +94,14 @@ def load_students():
             if emb is not None:
                 embeddings.append(emb)
 
-        # ✅ store MULTIPLE embeddings
         if len(embeddings) > 0:
             student_db[sid] = embeddings
 
     print("Students loaded:", len(student_db))
 
 
-# Load once at startup
-load_students()
+# ❌ REMOVED AUTO LOAD (IMPORTANT FIX)
+# load_students()
 
 
 # =========================
@@ -102,6 +118,10 @@ def home():
 @app.route("/process_attendance", methods=["POST"])
 def process():
     try:
+        # ✅ LAZY LOAD (NO CRASH)
+        if len(student_db) == 0:
+            load_students()
+
         data = request.get_json()
 
         if not data:
@@ -158,13 +178,11 @@ def process():
             status = "Present" if sid in present_ids else "Absent"
             name = student_names.get(sid, sid)
 
-            # ✅ MAIN ATTENDANCE
             ref.document(sid).set({
                 "name": name,
                 "status": status
             })
 
-            # 🔥 STUDENT HISTORY SAVE
             db.collection("students").document(sid)\
                 .collection("history").document(date).set({
                     "date": date,
@@ -173,9 +191,6 @@ def process():
 
         print("Attendance saved successfully")
 
-        # =========================
-        # 📤 RESPONSE
-        # =========================
         return jsonify({
             "present_students": present_ids,
             "present_count": present_count,
