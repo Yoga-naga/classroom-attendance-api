@@ -3,23 +3,17 @@ import os
 import numpy as np
 import firebase_admin
 from firebase_admin import credentials, firestore
+import json
 
 from model import process_attendance
 from config import MATCH_THRESHOLD
 
 app = Flask(__name__)
 
-# =========================
-# 🔥 GLOBAL VARIABLES
-# =========================
 student_db = {}
 student_names = {}
 
-# =========================
-# 🔥 FIREBASE INIT
-# =========================
-import json
-
+# FIREBASE INIT
 firebase_key = os.environ.get("FIREBASE_KEY")
 
 if not firebase_key:
@@ -31,13 +25,9 @@ cred = credentials.Certificate(firebase_config)
 firebase_admin.initialize_app(cred)
 db = firestore.client()
 
-# =========================
-# 👨‍🎓 LOAD STUDENTS (FAST)
-# =========================
+
 def load_students():
     global student_db, student_names
-
-    print("Loading students from Firestore...")
 
     students = db.collection("students").stream()
 
@@ -61,28 +51,18 @@ def load_students():
         if len(embeddings) > 0:
             student_db[sid] = embeddings
 
-    print("Students loaded:", len(student_db))
 
-
-# =========================
-# 🏠 HOME
-# =========================
 @app.route("/")
 def home():
     return "AI Attendance Backend Running 🚀"
 
 
-# =========================
-# 🎯 ATTENDANCE API
-# =========================
 @app.route("/process_attendance", methods=["POST"])
 def process():
     try:
         global student_db
 
-        # ✅ LOAD ONLY ONCE (SAFE)
         if not student_db:
-            print("First time loading students...")
             load_students()
 
         data = request.get_json()
@@ -95,8 +75,6 @@ def process():
 
         if not image_urls or not date:
             return jsonify({"error": "Missing data"}), 400
-
-        print("Processing attendance...")
 
         present_ids = set()
         total_faces_all = 0
@@ -130,8 +108,7 @@ def process():
                 for sid in detected_ids:
                     present_ids.add(sid)
 
-            except Exception as e:
-                print("Image error:", e)
+            except:
                 continue
 
         present_ids = list(present_ids)
@@ -140,9 +117,6 @@ def process():
         present_count = len(present_ids)
         absent_count = total_students - present_count
 
-        # =========================
-        # 💾 SAVE TO FIREBASE
-        # =========================
         ref = db.collection("attendance").document(date).collection("students")
 
         for sid in student_db.keys():
@@ -171,13 +145,9 @@ def process():
         })
 
     except Exception as e:
-        print("ERROR:", str(e))
         return jsonify({"error": str(e)}), 500
 
 
-# =========================
-# 🚀 RUN
-# =========================
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)

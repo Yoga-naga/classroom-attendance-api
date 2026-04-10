@@ -52,8 +52,7 @@ def process_attendance(group_img, database, threshold):
                     best_id = sid
                 elif sim > second_best:
                     second_best = sim
-
-        print(f"Best: {best_id} ({best_sim}) | Second: {second_best}")
+                    
 
         # ✅ FINAL DECISION
         if best_sim >= threshold and (best_sim - second_best) >= GAP_THRESHOLD:
